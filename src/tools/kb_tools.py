@@ -47,7 +47,7 @@ def lookup_troubleshooting_article(
     description: str,
 ) -> Dict:
     """
-    Look up a troubleshooting article from the maintenance KB.
+    Looks up a troubleshooting article from the maintenance KB.
 
     Args:
       title: Short problem title from the tenant.
@@ -57,6 +57,7 @@ def lookup_troubleshooting_article(
       dict with keys: article_id, article_title, suggested_steps (List[str]).
       If no good match, returns an empty result with suggested_steps = [].
     """
+    print(f"[KB_TOOL] lookup_troubleshooting_article called with title='{title}' description='{description}'")
     full_text = f"{title}\n{description}".lower()
     best = None
     best_score = 0
@@ -68,12 +69,14 @@ def lookup_troubleshooting_article(
             best = art
 
     if not best or best_score == 0:
+        print("[KB_TOOL] No matching article found.")
         return {
             "article_id": None,
             "article_title": None,
             "suggested_steps": [],
         }
 
+    print(f"[KB_TOOL] Matched article: {best['id']} - {best['title']}")
     return {
         "article_id": best["id"],
         "article_title": best["title"],

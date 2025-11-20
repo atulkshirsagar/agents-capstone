@@ -53,76 +53,76 @@ def triage_agent_call(tenant_input: Dict[str, Any], prop: Dict[str, Any]) -> Dic
         "triage_notes": "rule_based_v1"
     }
 
-# Step 4: Self-help generator (rule-based; later can be LLM/Gemini)
-def propose_self_help_steps(
-    triage_output: Dict[str, Any],
-    tenant_input: Dict[str, Any],
-    prop: Dict[str, Any],
-) -> Dict[str, Any]:
-    """
-    Generate simple, safe self-help instructions based on issue_type.
-    This is a stand-in for a Gemini-based self-help agent; interface stays the same.
-    """
-    issue_type = triage_output.get("issue_type", "OTHER")
-    title = (tenant_input.get("title") or "").lower()
-    desc = (tenant_input.get("description") or "").lower()
+# Step 4: Self-help generator (rule-based; later can be LLM/Gemini) #RETIRED 
+# def propose_self_help_steps(
+#     triage_output: Dict[str, Any],
+#     tenant_input: Dict[str, Any],
+#     prop: Dict[str, Any],
+# ) -> Dict[str, Any]:
+#     """
+#     Generate simple, safe self-help instructions based on issue_type.
+#     This is a stand-in for a Gemini-based self-help agent; interface stays the same.
+#     """
+#     issue_type = triage_output.get("issue_type", "OTHER")
+#     title = (tenant_input.get("title") or "").lower()
+#     desc = (tenant_input.get("description") or "").lower()
 
-    steps: List[str] = []
+#     steps: List[str] = []
 
-    if issue_type == "ELECTRICAL":
-        steps = [
-            "Check if other lights or outlets in the same room are working.",
-            "Locate your breaker panel and carefully open the door.",
-            "Look for a breaker that is in the middle position or clearly off.",
-            "Flip that breaker fully to OFF and then back to ON once.",
-            "If the breaker trips again or you see any sparks or burning smell, stop and report the issue immediately.",
-        ]
-    elif issue_type == "APPLIANCE":
-        steps = [
-            "Unplug the washing machine from the wall outlet.",
-            "Check the drain hose at the back of the washer to see if it is kinked or bent.",
-            "Open the small filter or drain panel (if your washer has one) and clean out any visible debris.",
-            "Plug the washer back in and run a short rinse/drain cycle.",
-            "If water still does not drain, stop using the washer and report the issue.",
-        ]
-    elif issue_type == "PLUMBING":
-        steps = [
-            "Empty the cabinet under the sink so you can clearly see the pipes.",
-            "Place a small bucket or tray under the area where water is dripping.",
-            "Gently tighten the visible pipe connections by hand (do not use tools or over-tighten).",
-            "Turn on the tap for a short time and check if the leak slows down.",
-            "If water continues to leak or worsens, turn off the sink tap and report the issue.",
-        ]
-    elif issue_type == "HVAC":
-        steps = [
-            "Check if the thermostat is set to COOL and the temperature is lower than the room temperature.",
-            "Ensure all windows and doors are closed in the main rooms.",
-            "Check and, if you know how, gently remove the air filter cover and see if the filter is very dusty.",
-            "If the filter is extremely dirty and you are comfortable, replace it with a similar size filter.",
-            "If the AC is still not cooling, stop troubleshooting and report the issue.",
-        ]
-    elif issue_type == "GAS":
-        steps = [
-            "Do not light any flames, matches, or lighters.",
-            "Avoid turning electrical switches on or off near the gas smell.",
-            "Open windows and doors to allow fresh air in, if it is safe to do so.",
-            "Leave the apartment or house and move to a safe distance.",
-            "Call emergency gas services or the building emergency contact from a safe location.",
-        ]
-    else:
-        steps = [
-            "Take a clear photo of the issue.",
-            "Write down what you were doing just before the issue started.",
-            "Report these details along with your maintenance request.",
-        ]
+#     if issue_type == "ELECTRICAL":
+#         steps = [
+#             "Check if other lights or outlets in the same room are working.",
+#             "Locate your breaker panel and carefully open the door.",
+#             "Look for a breaker that is in the middle position or clearly off.",
+#             "Flip that breaker fully to OFF and then back to ON once.",
+#             "If the breaker trips again or you see any sparks or burning smell, stop and report the issue immediately.",
+#         ]
+#     elif issue_type == "APPLIANCE":
+#         steps = [
+#             "Unplug the washing machine from the wall outlet.",
+#             "Check the drain hose at the back of the washer to see if it is kinked or bent.",
+#             "Open the small filter or drain panel (if your washer has one) and clean out any visible debris.",
+#             "Plug the washer back in and run a short rinse/drain cycle.",
+#             "If water still does not drain, stop using the washer and report the issue.",
+#         ]
+#     elif issue_type == "PLUMBING":
+#         steps = [
+#             "Empty the cabinet under the sink so you can clearly see the pipes.",
+#             "Place a small bucket or tray under the area where water is dripping.",
+#             "Gently tighten the visible pipe connections by hand (do not use tools or over-tighten).",
+#             "Turn on the tap for a short time and check if the leak slows down.",
+#             "If water continues to leak or worsens, turn off the sink tap and report the issue.",
+#         ]
+#     elif issue_type == "HVAC":
+#         steps = [
+#             "Check if the thermostat is set to COOL and the temperature is lower than the room temperature.",
+#             "Ensure all windows and doors are closed in the main rooms.",
+#             "Check and, if you know how, gently remove the air filter cover and see if the filter is very dusty.",
+#             "If the filter is extremely dirty and you are comfortable, replace it with a similar size filter.",
+#             "If the AC is still not cooling, stop troubleshooting and report the issue.",
+#         ]
+#     elif issue_type == "GAS":
+#         steps = [
+#             "Do not light any flames, matches, or lighters.",
+#             "Avoid turning electrical switches on or off near the gas smell.",
+#             "Open windows and doors to allow fresh air in, if it is safe to do so.",
+#             "Leave the apartment or house and move to a safe distance.",
+#             "Call emergency gas services or the building emergency contact from a safe location.",
+#         ]
+#     else:
+#         steps = [
+#             "Take a clear photo of the issue.",
+#             "Write down what you were doing just before the issue started.",
+#             "Report these details along with your maintenance request.",
+#         ]
 
-    return {
-        "strategy": "rule_based_v1",
-        "issue_type": issue_type,
-        "steps": steps,
-        "title": title,
-        "description": desc,
-    }
+#     return {
+#         "strategy": "rule_based_v1",
+#         "issue_type": issue_type,
+#         "steps": steps,
+#         "title": title,
+#         "description": desc,
+#     }
 
 # Step 3: Vendor scoring helper and issue_type -> service_type mapping
 

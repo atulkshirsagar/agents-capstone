@@ -2,17 +2,14 @@
 
 import json
 from typing import Dict, Any
-from google.adk.agents import Agent as LlmAgent
-from google.adk.models.google_llm import Gemini
-from google.adk.sessions import InMemorySessionService
+from google.adk.sessions import BaseSessionService
 from google.adk.runners import Runner
+from src.prompts.system_prompts import format_triage_request
+from src.utils.json_utils import extract_json_from_llm_output
 
-from ..tools.kb_tools import lookup_troubleshooting_article
-from ..prompts.system_prompts import MAINTENANCE_TRIAGE_PROMPT, format_triage_request
+from ..utils.session_manager import run_session, build_session_service
 from ..utils.constants import APP_NAME, MODEL_NAME, SESSION_ID
-from ..utils.retry_config import retry_config
-from ..utils.session_manager import run_session
-from ..utils.json_utils import extract_json_from_llm_output
+from ..adk_agents.maintenance_triage.agent import root_agent as TRIAGE_ADK_AGENT
 
 
 class MaintenanceTriageAgent:
@@ -20,26 +17,17 @@ class MaintenanceTriageAgent:
     
     def __init__(self):
         """Initialize the maintenance triage agent."""
-        # Create the LLM Agent
-        self.agent = LlmAgent(
-            name="maintenance_triage_agent",
-            model=Gemini(model=MODEL_NAME, retry_options=retry_config),
-            description=(
-                "Triage and suggest self-help steps for rental maintenance issues such as leaks, "
-                "appliance failures, or HVAC problems."
-            ),
-            instruction=MAINTENANCE_TRIAGE_PROMPT,
-            tools=[lookup_troubleshooting_article],
-        )
-        
-        # Set up Session Management
-        self.session_service = InMemorySessionService()
-        
-        # Create the Runner
+        # Use the ADK agent from adk_agents
+        self.agent = TRIAGE_ADK_AGENT
+
+        # Shared session service (same DB as adk web)
+        self.session_service: BaseSessionService = build_session_service()
+
+        # Create Runner that uses that service
         self.runner = Runner(
             agent=self.agent,
             app_name=APP_NAME,
-            session_service=self.session_service
+            session_service=self.session_service,
         )
         
         print("✅ Maintenance Triage Agent initialized!")
@@ -71,13 +59,15 @@ class MaintenanceTriageAgent:
         desc = request.get("description", "")
         priority = request.get("priority", "medium")
         property_id = request.get("property_id", "unknown")
+        property_zip = request.get("property_zip", "unknown")
         
         # Format the user prompt
         user_prompt = format_triage_request(
             property_id=property_id,
             priority=priority,
             title=title,
-            description=desc
+            description=desc,
+            property_zip=property_zip
         )
         
         # Run the session and get response

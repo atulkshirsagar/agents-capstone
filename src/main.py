@@ -16,12 +16,14 @@ async def main():
             "priority_hint": "high"
         },
         "property": {
-            "property_id": "P123"
+            "property_id": "P123",
+            "zip": "95054"
         },
         "ground_truth": {
             "self_help_should_succeed": False,
             "expected_vendor_service_type": "hvac",
-            "max_budget": 500.0
+            "max_budget": 500.0,
+            "severity": "HIGH"
         }
     }
 
@@ -33,6 +35,10 @@ async def main():
     print(logs_rec.triage)
     print("\n--- Tenant Messages ---")
     for msg in logs_rec.messages["tenant"]:
+        print(msg)
+
+    print("\n--- Landlord Messages ---")
+    for msg in logs_rec.messages["landlord"]:
         print(msg)
 
 
