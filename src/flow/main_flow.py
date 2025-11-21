@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Any, Optional
 from src.agents.maintenance_triage_agent import MaintenanceTriageAgent
+from src.agents.vendor_agent import VendorAgent
 from src.data.vendors import load_vendors_df
 from src.utils.stubs import payment_agent, triage_agent_call, vendor_a2a_book_slot, vendor_a2a_get_availability, vendor_a2a_job_status_update_stub, vendor_a2a_request_quote, vendor_selection_agent
+import random
 
 # You must provide these stubs or implementations:
 # triage_agent_call, propose_self_help_steps, vendor_selection_agent,
@@ -23,6 +25,7 @@ class LogsRecorder:
         self.payment: Optional[Dict[str, Any]] = None
         self.states = []
         self.messages = {"tenant": [], "landlord": []}
+        self.vendor_logs: Dict[str, Any] = {}
     def add_state(self, state):
         self.states.append(state)
     def to_dict(self) -> Dict[str, Any]:
@@ -32,19 +35,24 @@ async def run_scenario_through_agents(scenario: Dict[str, Any]) -> LogsRecorder:
     logs_rec = LogsRecorder(scenario_id=scenario["scenario_id"])
     tenant_input = scenario["tenant_input"]
     prop = scenario["property"]
-    gt = scenario.get("ground_truth", {})  # Use empty dict if missing
+    gt = scenario.get("ground_truth", {})
+
+    logs_rec.add_state("REPORTED")
 
     # 1) TRIAGE (Gemini via ADK) + rule-based hybrid
     adk_logs: Dict[str, Any] = {}
     adk_request = {
         "ticket_id": scenario["scenario_id"],
         "property_id": prop.get("property_id", "UNKNOWN"),
-        "property_zip": prop.get("zip", "00000"),  # <-- Add this
+        "property_zip": prop.get("zip", "00000"),
         "title": tenant_input.get("title", ""),
         "description": tenant_input.get("description", ""),
         "priority": tenant_input.get("priority_hint", "MEDIUM"),
     }
+    
+    # Initialize maintenance agent (includes vendor sub-agent)
     agent = MaintenanceTriageAgent()
+    
     gemini_triage = await agent.triage_issue(adk_request, adk_logs)
     rules_triage = triage_agent_call(tenant_input, prop)
     triage_label = gemini_triage.get("triage_label", "VENDOR_REQUIRED")
@@ -88,12 +96,10 @@ async def run_scenario_through_agents(scenario: Dict[str, Any]) -> LogsRecorder:
                 "kb_article_title": gemini_triage.get("kb_article_title"),
                 "explanation": gemini_triage.get("explanation"),
             }
-        
         logs_rec.self_help = self_help_plan
         logs_rec.messages["tenant"].append(
             "Here are some safe steps you can try while we monitor the issue."
         )
-        # Use .get with default False
         if gt.get("self_help_should_succeed", False):
             logs_rec.add_state("SELF_HELP_SUCCEEDED")
             logs_rec.messages["tenant"].append(
@@ -106,23 +112,38 @@ async def run_scenario_through_agents(scenario: Dict[str, Any]) -> LogsRecorder:
             logs_rec.messages["tenant"].append(
                 "Looks like the steps did not fully resolve the issue. We will arrange a vendor visit."
             )
+            logs_rec.add_state("ESCALATED")
+            
+            # Re-select vendor after self-help fails if not already selected
+            if not gemini_triage.get("vendor_selection") or gemini_triage.get("vendor_selection", {}).get("vendor_id") is None:
+                # Call vendor selection tool, calling through the agent is unnecessary at this stage
+                from src.tools.vendor_tools import select_best_vendor
+                vendor_choice = select_best_vendor(
+                    issue_type=rules_triage.get("issue_type", "APPLIANCE"),
+                    property_zip=prop.get("zip", "00000"),
+                    severity=rules_triage.get("severity", "MEDIUM")
+                )
+                gemini_triage["vendor_selection"] = vendor_choice
+    else:
+        # If not self-help, escalate immediately
+        logs_rec.add_state("ESCALATED")
 
     # 3) ESCALATION to vendor path
-    logs_rec.add_state("ESCALATED")
-    # Use .get with default None
     if gt.get("expected_vendor_service_type", None) is None:
         logs_rec.messages["tenant"].append(
             "The issue is minor and will be monitored. No vendor visit is required."
         )
+        logs_rec.add_state("CLOSED")
         return logs_rec
 
-    # 3a) Vendor selection is now handled by the agent's triage_issue method
+    # 3a) Vendor selection
     vendor_choice = gemini_triage.get("vendor_selection")
     logs_rec.vendor_selection = vendor_choice
     if not vendor_choice or vendor_choice.get("vendor_id") is None:
         logs_rec.messages["landlord"].append(
             "No suitable vendor found for this issue type and location."
         )
+        logs_rec.add_state("CLOSED")
         return logs_rec
     logs_rec.add_state("VENDOR_SELECTED")
     logs_rec.messages["landlord"].append(
@@ -133,42 +154,78 @@ async def run_scenario_through_agents(scenario: Dict[str, Any]) -> LogsRecorder:
         f"We have selected vendor {vendor_choice['vendor_name']} to handle your issue."
     )
 
-    # 3b) Request quote via A2A
-    quote = vendor_a2a_request_quote(vendor_choice, scenario)
+    # 3b) Request quote via A2A (through maintenance agent's sub-agent)
+    vendor_logs: Dict[str, Any] = {}
+    quote = await agent.request_vendor_quote(
+        service_type=vendor_choice.get("service_type", "HVAC"),
+        issue_description=tenant_input["description"],
+        property_zip=prop["zip"],
+        severity=gt.get("severity", "MEDIUM"),
+        logs=vendor_logs
+    )
     logs_rec.quote = quote
+    logs_rec.vendor_logs = vendor_logs
     logs_rec.add_state("QUOTE_RECEIVED")
-    total_estimate = quote["estimate"]["total_estimate"]
-    if total_estimate <= gt["max_budget"]:
+    
+    total_estimate = quote.get("estimate", {}).get("total_estimate", 0)
+    max_budget = gt.get("max_budget")
+    # If ground_truth is missing, randomly approve or reject quote
+    if max_budget is None:
+        approve_chance = 0.7 if total_estimate < 500 else 0.3
+        approved = random.random() < approve_chance
         logs_rec.messages["landlord"].append(
-            f"Quote of ${total_estimate:.2f} from {vendor_choice['vendor_name']} is within budget "
-            f"(max ${gt['max_budget']:.2f}) and has been auto-approved for evaluation."
+            f"Quote of ${total_estimate:.2f} from {vendor_choice['vendor_name']} " +
+            ("has been auto-approved for evaluation (no budget info)." if approved else "has been rejected (no budget info).")
         )
-        logs_rec.add_state("QUOTE_APPROVED")
+        if approved:
+            logs_rec.add_state("QUOTE_APPROVED")
+        else:
+            logs_rec.add_state("QUOTE_REJECTED")
+            logs_rec.add_state("CLOSED")
+            return logs_rec
     else:
-        logs_rec.messages["landlord"].append(
-            f"Quote of ${total_estimate:.2f} from {vendor_choice['vendor_name']} exceeds budget "
-            f"(max ${gt['max_budget']:.2f}). It has been rejected."
-        )
-        return logs_rec
+        if total_estimate <= max_budget:
+            logs_rec.messages["landlord"].append(
+                f"Quote of ${total_estimate:.2f} from {vendor_choice['vendor_name']} is within budget "
+                f"(max ${max_budget:.2f}) and has been auto-approved for evaluation."
+            )
+            logs_rec.add_state("QUOTE_APPROVED")
+        else:
+            logs_rec.messages["landlord"].append(
+                f"Quote of ${total_estimate:.2f} from {vendor_choice['vendor_name']} exceeds budget "
+                f"(max ${max_budget:.2f}). It has been rejected."
+            )
+            logs_rec.add_state("QUOTE_REJECTED")
+            logs_rec.add_state("CLOSED")
+            return logs_rec
 
     # 3c) Availability + booking via A2A
-    availability = vendor_a2a_get_availability(vendor_choice, quote)
-    chosen_slot = availability["options"][0]
-    booking = vendor_a2a_book_slot(
-        vendor_choice,
-        quote,
-        chosen_slot,
-        tenant_contact={"name": "Test Tenant", "phone": "000-000-0000"},
+    availability = await agent.check_vendor_availability(
+        service_type=vendor_choice.get("service_type", "HVAC"),
+        quote_id=quote.get("quote_id", ""),
+        logs=vendor_logs
+    )
+    
+    chosen_slot = availability.get("options", [{}])[0]
+    booking = await agent.book_vendor_slot(
+        quote_id=quote.get("quote_id", ""),
+        slot_id=chosen_slot.get("slot_id", ""),
+        tenant_name="Test Tenant",
+        tenant_phone="000-000-0000",
+        special_instructions="",
+        logs=vendor_logs
     )
     logs_rec.booking = booking
     logs_rec.add_state("SCHEDULED")
     logs_rec.messages["tenant"].append(
-        f"Your appointment is scheduled on {chosen_slot['date']} "
-        f"from {chosen_slot['from']} to {chosen_slot['to']}."
+        f"Your appointment is scheduled on {chosen_slot.get('date', 'TBD')} "
+        f"from {chosen_slot.get('from', 'TBD')} to {chosen_slot.get('to', 'TBD')}."
     )
 
-    # 3d) Job status update via A2A
-    job_update = vendor_a2a_job_status_update_stub(booking, scenario)
+    logs_rec.vendor_logs = vendor_logs # Update vendor logs
+
+    # 3d) Job status update via stub (for now)
+    job_update = vendor_a2a_job_status_update_stub(booking, scenario, quote)
     job_update["final_amount"] = total_estimate
     logs_rec.job_update = job_update
     if job_update["status"] == "DONE":
@@ -181,6 +238,7 @@ async def run_scenario_through_agents(scenario: Dict[str, Any]) -> LogsRecorder:
         logs_rec.messages["landlord"].append(
             f"Vendor reported job status {job_update['status']} for {scenario['scenario_id']}."
         )
+        logs_rec.add_state("CLOSED")
         return logs_rec
 
     # 4) PAYMENT via Payment Agent

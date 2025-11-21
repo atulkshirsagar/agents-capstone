@@ -8,9 +8,10 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 google-genai = "^1.0.0"
-google-adk = "^1.18.0"
+google-adk = {extras = ["a2a"], version = "^1.19.0"}
 python-dotenv = "^1.2.1"
 pandas = "^2.3.3"
+aiosqlite = "^0.21.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

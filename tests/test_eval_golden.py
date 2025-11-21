@@ -33,3 +33,50 @@ async def test_eval_single_golden():
 
     # Basic assertion: total score should be non-negative
     assert total_score >= 0
+
+@pytest.mark.asyncio
+async def test_eval_all_golden():
+    scenarios = load_golden_incidents()
+    report = []
+    total_scores = []
+    for scenario in scenarios:
+        logs_rec = await run_scenario_through_agents(scenario)
+        gt = scenario["ground_truth"]
+
+        triage_score = score_triage(logs_rec.triage, gt)
+        state_score = score_state_machine(logs_rec.states, gt)
+        self_help_score = score_self_help(logs_rec.self_help, gt)
+        vendor_score = score_vendor(logs_rec.vendor_selection, gt, vendors_df)
+        payment_score = score_payment(logs_rec.payment, gt)
+        comm_score = score_communications(logs_rec.messages, gt)
+        total_score = triage_score + state_score + self_help_score + vendor_score + payment_score + comm_score
+
+        total_scores.append(total_score)
+        report.append({
+            "scenario_id": scenario["scenario_id"],
+            "triage_score": triage_score,
+            "state_score": state_score,
+            "self_help_score": self_help_score,
+            "vendor_score": vendor_score,
+            "payment_score": payment_score,
+            "comm_score": comm_score,
+            "total_score": total_score
+        })
+
+    print("\n=== Evaluation Report for All Golden Incidents ===")
+    for entry in report:
+        print(
+            f"Scenario: {entry['scenario_id']}\n"
+            f"  Triage Score: {entry['triage_score']}\n"
+            f"  State Machine Score: {entry['state_score']}\n"
+            f"  Self-Help Score: {entry['self_help_score']}\n"
+            f"  Vendor Score: {entry['vendor_score']}\n"
+            f"  Payment Score: {entry['payment_score']}\n"
+            f"  Communication Score: {entry['comm_score']}\n"
+            f"  Total Score: {entry['total_score']}\n"
+            "---------------------------------------------"
+        )
+    print(f"Average Total Score: {sum(total_scores)/len(total_scores):.2f}")
+
+    # Basic assertion: all total scores should be non-negative
+    assert all(score >= 0 for score in total_scores)

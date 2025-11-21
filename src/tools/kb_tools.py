@@ -33,6 +33,19 @@ kb_articles = [
             "Ensure the drain hose is not kinked or blocked.",
         ],
     },
+    {
+        "id": "kb_electrical_01",
+        "title": "Tripped breaker or room lights not working",
+        "keywords": [
+            "breaker", "tripped", "lights not working", "bedroom lights", "power outage", "circuit", "electrical", "no power"
+        ],
+        "steps": [
+            "Check your home's electrical panel for any breakers that are in the 'off' position.",
+            "If you find a tripped breaker, flip it fully to the 'off' position, then back to 'on'.",
+            "If the breaker trips again immediately, do not attempt further resets and contact maintenance.",
+            "If power is restored, monitor for further issues."
+        ],
+    },
 ]
 
 

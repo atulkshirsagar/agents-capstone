@@ -1,4 +1,5 @@
 # Step 2: Rule-based triage agent (will later be replaced by Gemini)
+import random
 from typing import Dict, Any, List
 from io import StringIO
 import json
@@ -303,25 +304,35 @@ def vendor_a2a_book_slot(
 def vendor_a2a_job_status_update_stub(
     booking: Dict[str, Any],
     incident: Dict[str, Any],
+    quote: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
     """
     Simulate vendor job status update.
-    For now all jobs succeed with a final_amount equal to the quote total.
+    final_amount is randomly set, but does not exceed the quoted total.
+    Handles missing ground_truth gracefully.
     """
-    gt = incident["ground_truth"]
     status = "DONE"
     summary = "Work completed successfully (simulated)."
 
-    # Use quote total as final_amount (we'll attach the quote in logs)
-    # For simplicity, final_amount filled later when we have quote in logs.
+    # Get quoted total_estimate if available
+    total_estimate = None
+    if quote and "estimate" in quote and "total_estimate" in quote["estimate"]:
+        total_estimate = quote["estimate"]["total_estimate"]
+    else:
+        # fallback: try ground_truth or default to 300
+        gt = incident.get("ground_truth", {})
+        total_estimate = gt.get("max_budget", 300)
+
+    # Random final amount, not exceeding quote
+    final_amount = round(random.uniform(0.8, 1.0) * float(total_estimate), 2)
 
     return {
         "type": "job_status_update",
-        "job_id": booking["job_id"],
-        "incident_id": incident["scenario_id"],
+        "job_id": booking.get("job_id"),
+        "incident_id": incident.get("scenario_id"),
         "status": status,
         "summary": summary,
-        # final_amount will be injected in the orchestrator once we know it
+        "final_amount": final_amount,
     }
 
 # Step 5: Payment agent (AP2-style: mandate + payment)
@@ -332,52 +343,70 @@ def payment_agent(
     job_update: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    AP2-style:
-      - Create a mandate for this vendor & incident.
-      - Check final_amount vs mandate.max_amount and job status.
-      - Simulate tenant confirmation and execute payment if safe.
+    AP2-style payment agent:
+      - Creates a payment mandate for this vendor & incident
+      - Validates final_amount against mandate max_amount
+      - Checks job completion status
+      - Simulates tenant confirmation
+      - Executes payment if all conditions are met
+      
+    AP2 Protocol Flow:
+      1. Mandate Creation: Authorization for payment up to max_amount
+      2. Validation: Check amount, status, and confirmation
+      3. Payment Execution: Settle payment if validated
     """
     scenario_id = incident["scenario_id"]
-    gt = incident["ground_truth"]
+    gt = incident.get("ground_truth", {})
 
-    max_budget = float(gt["max_budget"])
+    # Handle missing ground_truth gracefully
+    max_budget = float(gt.get("max_budget", 500.0))  # Default to $500 if missing
     vendor_id = vendor_choice["vendor_id"]
     final_amount = float(job_update["final_amount"])
     job_status = job_update["status"]
 
+    # AP2 Step 1: Create payment mandate
     mandate = {
         "mandate_id": f"MANDATE-{scenario_id}-{vendor_id}",
-        "subject": scenario_id,
-        "payee": vendor_id,
+        "subject": scenario_id,  # What the mandate is for
+        "payee": vendor_id,      # Who gets paid
         "currency": "USD",
-        "max_amount": max_budget,
+        "max_amount": max_budget,  # Maximum authorized amount
         "valid_until": "2025-12-31T23:59:59Z",
+        "status": "ACTIVE"
     }
 
-    # In a real system: ask tenant to confirm resolution.
-    # For eval, we simulate tenant confirmation = True when job_status == DONE.
+    # AP2 Step 2: Validate payment conditions
+    # In production: get real tenant confirmation via UI/agent
+    # For capstone: simulate confirmation when job is done
     tenant_confirms = (job_status == "DONE")
 
-    # Payment conditions
+    # Check all AP2 payment conditions
     can_pay = (
-        tenant_confirms
-        and job_status == "DONE"
-        and final_amount <= mandate["max_amount"]
+        tenant_confirms                          # Tenant confirms work is done
+        and job_status == "DONE"                # Job marked complete by vendor
+        and final_amount <= mandate["max_amount"]  # Amount within mandate limit
     )
 
+    # AP2 Step 3: Execute or reject payment
     if can_pay:
         payment = {
             "payment_id": f"PAY-{scenario_id}-{vendor_id}",
+            "mandate_id": mandate["mandate_id"],
             "amount": final_amount,
             "currency": "USD",
+            "payee": vendor_id,
             "status": "SETTLED",
+            "settled_at": "2025-11-21T12:00:00Z"
         }
         return {
             "paid": True,
             "mandate": mandate,
             "payment": payment,
+            "protocol": "AP2",
+            "message": f"Payment of ${final_amount} settled to {vendor_id} via AP2 protocol"
         }
     else:
+        # Payment rejected - document reasons
         reason = []
         if not tenant_confirms:
             reason.append("tenant_not_confirmed")
@@ -390,5 +419,7 @@ def payment_agent(
             "paid": False,
             "mandate": mandate,
             "payment": None,
+            "protocol": "AP2",
             "reason": reason,
+            "message": f"Payment rejected: {', '.join(reason)}"
         }

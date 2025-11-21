@@ -8,12 +8,16 @@ from google.adk.sessions import (
     BaseSessionService,
     DatabaseSessionService,
 )
+import os
+from dotenv import load_dotenv
 
-USE_SHARED_SQLITE = True  # Set to True to use shared SQLite DB for sessions
+# load_dotenv()  # Load environment variables from .env file. ALREADY CALLED IN MAIN
+
+USE_SHARED_SQLITE = os.getenv("USE_SHARED_SQLITE", "false").lower() == "true"  # Read from .env
 
 def build_session_service() -> BaseSessionService:
     if USE_SHARED_SQLITE:
-        return DatabaseSessionService(db_url="sqlite:///adk_sessions.db")
+        return DatabaseSessionService(db_url="sqlite+aiosqlite:///adk_sessions.db")
     else:
         return InMemorySessionService()
     
