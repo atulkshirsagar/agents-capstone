@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional
 from src.flow.main_flow import run_scenario_through_agents
 import pandas as pd
 
+from src.utils.stubs import vendor_utility_score
+
 
 def score_triage(triage_log: Dict[str, Any], gt: Dict[str, Any]) -> int:
     if not triage_log:
